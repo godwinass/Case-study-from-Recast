@@ -1,0 +1,348 @@
+---
+title: "Case Study on Marketing Data Analysis for Recast"
+author: "Godwin Assumaning, PhD"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
+    latex_engine: pdflatex
+  html_document:
+    keep_md: yes
+    code_folding: hide
+    toc: yes
+    toc_float: yes
+    toc_depth: 4
+---
+```{r setup, include=FALSE}
+ 
+# Import  R Libraries
+
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(tidyr)
+library(scales)
+library(rmarkdown)
+library(knitr)
+
+knitr::opts_chunk$set(warning = FALSE, message = FALSE,fig.align = "center",out.width="100%") 
+
+# Set directory for this case study data and scripts
+setwd("C:/Users/djl/Desktop/Recast_Case_Study/Marketing Data Scientist Take Home Assignment")
+
+```
+# **Introduction**
+
+The objective of this assignment is to analysis and find insights into two marketing data on spend and revenue.The data also contains the marketing spend, revenue,date and the marketing channels.The analysis is used to answer the questions provided by Recast.
+
+The second part of the assignment is based on two taps - Last-Week-Snapshot and Channel-Level-Deep-Dive. The taps are used to answer the questions provided by Recast.
+
+# **Data Ingestion**
+## **Marketing Spend Data Processing**
+```{r, echo=TRUE}
+
+# Ingest data (Spend and Revenue) for analysis and modeling
+
+# Spend dataset
+spend_data   <- read.csv("C:/Users/djl/Desktop/Recast_Case_Study/Marketing Data Scientist Take Home Assignment/acme_spend.csv")
+str(spend_data)
+spend_data <- subset(spend_data, select=-c(X))
+spend_data$date <- as.POSIXct(spend_data$date, format = "%m/%d/%y")
+spend_data$date <- as.Date(spend_data$date)
+spend_data$year <- year(spend_data$date)
+spend_data$spend <- spend_data$spend
+unique(spend_data$channel)
+
+# Select data by date range: Month of June is selected for all years for the analysis
+selected_data <- spend_data %>% dplyr::filter(month(date) == 6)
+
+# Aggregate data by year and channel
+spend_data_aggregated <- selected_data %>%  dplyr::group_by(year,channel) %>%
+                                            dplyr::summarise(spend = sum(spend, na.rm=TRUE)) %>% 
+                                            ungroup() %>% 
+                                            arrange(desc(spend)) %>% 
+                                            distinct()
+
+# Pivot the Spend data by year
+spend_data_pivot <- tidyr::pivot_wider(
+                          data = spend_data_aggregated ,
+                          names_from = year,
+                          values_from = spend)
+
+# Reorder columns
+column_names <- c("channel","2020","2021","2022")
+spend_data_pivot <- spend_data_pivot[, column_names]
+
+# Create new columns
+spend_data_pivot$spend_Increase_2021_2022 <- spend_data_pivot$'2022' - 
+                                             spend_data_pivot$'2021'
+spend_data_pivot$percent_spend_Increase_2021_2022 <- 
+  ((spend_data_pivot$'2022' - spend_data_pivot$'2021') /spend_data_pivot$'2021')
+
+```
+## **Visualize Marketing Spend Data**
+```{r, echo=TRUE}
+# Visualize data
+# plot 1
+ggplot(spend_data_pivot, aes(x = channel, y = spend_Increase_2021_2022, 
+                             fill = spend_Increase_2021_2022)) + 
+  geom_bar(stat = "identity") +
+  labs(x="Channel",
+       y="Increase in spend for the month of June for 3 years ($)",
+       title="Graph of channel vs spend increase for the month of June for 3 years") +
+   theme(legend.position="none",
+        axis.title      = element_text(face = "bold", size=10),
+        axis.text.x     = element_text(face = "bold", size=10),
+        axis.text.y     = element_text(face = "bold", size=10),
+        plot.title      = element_text(face = "bold", size=10,color="red",hjust = 0.5)) +
+  geom_text(aes(label = scales::dollar_format()(spend_Increase_2021_2022)), 
+            vjust = -0.5, size = 4)
+
+# plot 2
+ggplot(spend_data_pivot, aes(x=channel, y=percent_spend_Increase_2021_2022, fill=percent_spend_Increase_2021_2022)) +   geom_bar(stat = "identity") +
+  labs(x="Channel",
+       y="Percent increase in spend for the month of June for 3 years (%)",
+       title="Graph of channel vs percent increase in spend for the month of June for 3 years") +
+    theme(legend.position="none",
+        axis.title      = element_text(face = "bold", size=10),
+        axis.text.x     = element_text(face = "bold", size=10),
+        axis.text.y     = element_text(face = "bold", size=10),
+        plot.title      = element_text(face = "bold", size=10,color="red",hjust = 0.5)) +
+    geom_text(aes(label = percent(percent_spend_Increase_2021_2022)), vjust = -0.5, size = 4)
+
+```
+
+## **Revenue Data Processing**
+
+```{r, echo=TRUE}
+
+# Revenue dataset
+revenue_data   <- read.csv("C:/Users/djl/Desktop/Recast_Case_Study/Marketing Data Scientist Take Home Assignment/acme_revenue.csv")
+str(revenue_data)
+revenue_data <- subset(revenue_data, select=-c(X))
+revenue_data$date <- as.POSIXct(revenue_data$date, format = "%m/%d/%y")
+revenue_data$date <- as.Date(revenue_data$date)
+
+# Create total revenue column
+revenue_data$total_revenue <- revenue_data$revenue_dtc +
+                              revenue_data$revenue_amazon +
+                              revenue_data$revenue_walmart 
+
+# First Approach: Anomalous days check 
+# Filter rows where any numeric column is NA
+filtered_df <- revenue_data %>% dplyr::filter_all(any_vars(is.na(.)))
+print(filtered_df)
+
+# First Approach: Anomalous days check - Use Boxplot and Scatter plot
+# Remove rows with NA values from the revenue data: there are 4 rows with NAs
+revenue_data <- na.omit(revenue_data)
+
+# Plot 3
+# Outlier check: Create a boxplot to visualize the distribution
+ggplot(revenue_data, aes(x = date, y = total_revenue, group= 1)) +
+          geom_boxplot(color="blue") +
+          labs(title = "Revenue distribution by Date", 
+               y = "Total Revenue ($)",
+               x = "Date") +
+          theme(legend.position="none",
+                axis.title      = element_text(face = "bold", size=10),
+                axis.text.x     = element_text(face = "bold", size=10),
+                axis.text.y     = element_text(face = "bold", size=10),
+                plot.title      = element_text(face = "bold", size=10,color="red",hjust = 0.5)) 
+  
+# Plot 4
+ggplot(revenue_data, aes(x = date, y = total_revenue, group = 1)) +
+        geom_point(color="blue") +
+        labs(title = "Scatter plot for Total Revenue vs Date", 
+             y = "Total Revenue ($)",
+             x = "Date") +
+        theme(legend.position="none",
+              axis.title      = element_text(face = "bold", size=10),
+              axis.text.x     = element_text(face = "bold", size=10),
+              axis.text.y     = element_text(face = "bold", size=10),
+              plot.title      = element_text(face = "bold", size=10,color="red",hjust = 0.5)) 
+
+# Calculate Interquartile Range (IQR)
+iqr <- IQR(revenue_data$total_revenue)
+
+# Set a threshold for identifying outliers (1.5 times the IQR)
+threshold <- 1.5 * iqr
+
+# Identify anomalous dates
+anomalous_dates <- revenue_data %>% 
+                  dplyr::filter(total_revenue > (quantile(total_revenue, 0.75) + threshold) |
+                                total_revenue < (quantile(total_revenue, 0.25) - threshold))
+
+# Print anomalous dates
+print(anomalous_dates)
+
+# Create month column in the revenue data
+revenue_data$month <- month(revenue_data$date)
+
+# Group data by month and 
+revenue_data_aggregated <- revenue_data %>%  
+                                      dplyr::group_by(month) %>%
+                                      dplyr::summarise(total_rev = sum(total_revenue, na.rm=TRUE)) %>% 
+                                      ungroup() %>% 
+                                      arrange(desc(total_rev)) 
+
+# Add a month name column based on the month number
+revenue_data_aggregated <- revenue_data_aggregated %>% 
+                              dplyr::arrange(month) %>%
+                              dplyr::mutate(MonthName = month.name[month]) %>%
+                              dplyr::select(MonthName,total_rev) %>% 
+                              distinct()
+
+# Arrange the months from January to December
+revenue_data_aggregated$MonthName = factor(revenue_data_aggregated$MonthName,
+                                    levels = c("January", "February", "March", "April", "May", "June",
+                                    "July", "August", "September", "October", "November", "December"))
+
+
+```
+## **Visualize Revenue Data**
+
+```{r, echo=TRUE}
+
+# plot 5
+ggplot(revenue_data_aggregated, aes(x=factor(MonthName), y=total_rev, 
+                                    fill=total_rev)) + 
+            geom_bar(stat = "identity") +
+            labs(x="Month",
+                 y="Total Revenue ($)",
+                 title="Barchart of Month vs Total Revenue for ACME") +
+            theme(legend.position="none",
+                  axis.title      = element_text(face = "bold", size=10),
+                  axis.text.x     = element_text(face = "bold", size=10),
+                  axis.text.y     = element_text(face = "bold", size=10),
+                  plot.title      = element_text(face = "bold", size=10,color="red",hjust = 0.5)) +
+            geom_text(aes(label = scales::dollar_format()(total_rev)), vjust = -0.5, size = 4)
+
+```
+# **Relationship between Marketing Spend and Revenue**
+## **Summary Statistics, Correlation Coefficient calculation and Model Development**
+```{r, echo=TRUE}
+# Aggregate spend data by date
+spend_data <- na.omit(spend_data)
+spend_data_by_date <- spend_data  %>% dplyr::group_by(date) %>%
+                                      dplyr::summarise(spend = sum(spend, na.rm=TRUE)) %>% 
+                                      ungroup() %>% 
+                                      arrange(desc(date)) %>% 
+                                      distinct()
+min(spend_data_by_date$date)
+max(spend_data_by_date$date)
+length(unique(spend_data_by_date$date))
+spend_data_by_date <- as.data.frame(spend_data_by_date)
+
+# Aggregate revenue data by date
+revenue_data_by_date <- revenue_data  %>% 
+                        dplyr::group_by(date) %>%
+                        dplyr::summarise(total_revenue = sum(total_revenue, na.rm=TRUE)) %>% 
+                        ungroup() %>% 
+                        arrange(desc(date)) 
+min(revenue_data_by_date$date)
+max(revenue_data_by_date$date)
+length(unique(revenue_data_by_date$date))
+revenue_data_by_date <- as.data.frame(revenue_data_by_date)
+
+# Find missing dates in spend data compared to revenue data
+missing_dates <- spend_data$date[!spend_data$date %in% revenue_data$date]
+unique(missing_dates)
+
+#Data check
+spend_data %>% dplyr::filter(date %in% unique(missing_dates))
+
+# Join spend and revenue data
+revenue_spend_data <- dplyr::left_join(revenue_data_by_date,
+                                       spend_data_by_date, by = "date") %>% 
+                                       distinct()
+
+# Summary statistics
+summary(revenue_spend_data)
+
+# plot 6
+# Scatter plot to visualize the relationship
+ggplot(revenue_spend_data, aes(x = spend, y = total_revenue)) +
+       geom_point() +
+       labs(title = "Scatter Plot of Marketing Spend vs. Total Revenue", 
+             x = "Marketing Spend ($)", 
+             y = "Total Revenue ($)") +
+       theme(legend.position="none",
+            axis.title      = element_text(face = "bold", size=10),
+            axis.text.x     = element_text(face = "bold", size=10),
+            axis.text.y     = element_text(face = "bold", size=10),
+            plot.title      = element_text(face = "bold", size=10,color="red",hjust = 0.5)) 
+
+# To quantify the relationship, calculate the correlation coefficient 
+correlation_coefficient <- cor(revenue_spend_data$spend, 
+                               revenue_spend_data$total_revenue)
+print(paste("Correlation Coefficient:", correlation_coefficient))
+
+# To establish Causal relation between marketing spend and revenue, model is built:
+# Fit a Regression Model
+
+model <- lm(total_revenue ~ spend, data = revenue_spend_data)
+summary(model) 
+
+
+```
+
+## **Visualize the Regression Line**
+
+```{r, echo=TRUE}
+
+# plot 7
+ggplot(revenue_spend_data, aes(x = spend, y = total_revenue)) +
+        geom_point() +
+        geom_smooth(method = "lm", formula = y ~ x, color = "blue") +
+        labs(title = "Linear Regression: Marketing Spend vs. Total Revenue", 
+             x = "Marketing Spend ($)", 
+             y = "Total Revenue ($)") + 
+        theme(legend.position="none",
+               axis.title      = element_text(face = "bold", size=10),
+               axis.text.x     = element_text(face = "bold", size=10),
+               axis.text.y     = element_text(face = "bold", size=10),
+               plot.title      = element_text(face = "bold", size=10,color="red",hjust = 0.5)) 
+
+
+
+```
+
+# **Assignment Questions and Answers**
+## **Part 1**
+Answer 1:
+Online video has the highest increase in spend for the month of June from 2021 to 2022.It increased about 10% which translate into $40,790.84.
+
+Answer 2:
+In terms of total revenue per day, there are 4 anomalous days.They are the days with Total revenue value of NA.The days are 2020-01-18, 2020-07-31, 2022-10-08 and 2022-10-17.
+
+Answer 3:
+From the bar chart above (plot 5), March is the year that ACME made the most revenue.The total revenue for that month was $58,922,686
+
+Answer 4:
+Marketing spend and revenue tends to follow a similar pattern.The positive correlation coefficient of 0.909 suggests a positive and strong relationship between the two variables.The scatter plot (plot 6) also gives credence to the strong and positive relationship between the marketing spend and the revenue. 
+
+Answer 5:
+From the correlation coefficient, the regression model developed with Adjusted R-squared value of 0.8271 and visualization,it can be statistically inferred that, marketing spend is causally related to revenue.Also, from the coefficient of the spend, a dollar increase in marketing spend can increase the revenue by about $5.11.
+
+## **Part 2**  
+Answer 1:
+Since there is no budget limit set for these channels,I would recommend the client spend more money on Influencers since it is the channel with the highest ROI and MROI. This channel can generate significant returns and efficiently use additional budget. Also, the Channel-Level Deep-Dive tap, there is linear and positive relationship between 
+Actual Daily Spend and Total Sales.  
+
+Answer 2:
+I will recommend the client spends less money on Search Branded channel.This channel has the lowest ROI and MROI.The ROI and MROI are equal from the graph.Podcast and Influencers spend are less than Search Branded. But the have relatively higher ROI and MROI than Search Branded.It also shows that the channel may need evaluation for its effectiveness.
+
+Answer 3:
+(a): The channels we are most certain about are the channels with narrow errorbars (standard deviation)
+at the end of the ROI and MROI bars, and vice versa.These channels are Influencers, Search Branded, Search Non Branded, Facebook Retargeting and Facebook Prospecting.The channels we are least certain about are Podcast and Linear TV.
+
+(b): From Last Week Snapshot tab, I will recommend the client increase their investment in podcast since it has higher RO1 and MROI with less spending than Facebook prospecting channel.
+
+Answer 4:
+I think knowing more about the client's budget for the channels,can help with spend optimization for the client to get the right channels.And this could change some of the previous answers provided.Also, knowing more about the client's target audience,marketing goals and strategies,services or products provided can inform the decision on channels to recommend for the client.
+
+
+Note: Thank you for the opportunity to analysis this marketing data!!
+
